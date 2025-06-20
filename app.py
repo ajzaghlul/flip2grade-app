@@ -9,8 +9,16 @@ import streamlit as st
 # --- Core Function to Get eBay Sold Listings ---
 def get_ebay_sold_listings(query, max_results=10):
     base_url = f"https://www.ebay.com/sch/i.html?_nkw={query.replace(' ', '+')}&_sop=13&LH_Sold=1&LH_Complete=1"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(base_url, headers=headers)
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept-Language": "en-US,en;q=0.9"
+    }
+    try:
+        response = requests.get(base_url, headers=headers, timeout=10)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        return f"ERROR: {str(e)}"
+
     soup = BeautifulSoup(response.text, 'html.parser')
 
     results = []
@@ -44,9 +52,13 @@ max_results = st.slider("Max number of results to show:", 5, 50, 15)
 
 if st.button("Search eBay Sold Listings"):
     with st.spinner("Fetching data from eBay..."):
-        results_df = get_ebay_sold_listings(query, max_results)
-        if not results_df.empty:
-            st.success(f"Found {len(results_df)} sold listings.")
-            st.dataframe(results_df, use_container_width=True)
+        listings = get_ebay_sold_listings(query, max_results)
+
+        if isinstance(listings, str) and listings.startswith("ERROR"):
+            st.error(f"Failed to fetch listings: {listings}")
+        elif not listings.empty:
+            st.success(f"Found {len(listings)} sold listings.")
+            st.dataframe(listings, use_container_width=True)
         else:
-            st.warning("No sold listings found. Try a different search.")
+            st.warning("No sold listings found. The page structure may have changed or results are blocked.")
+            st.code("Try a simpler query or use the official eBay API for stability.")
