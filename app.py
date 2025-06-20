@@ -1,64 +1,68 @@
-# Flip2Grade MVP: Card Analyzer Backend + Frontend (Streamlit UI)
+# Flip2Grade MVP: Card Analyzer Using eBay Browse API + Streamlit
 
 import requests
-import datetime
-from bs4 import BeautifulSoup
 import pandas as pd
 import streamlit as st
 
-# --- Core Function to Get eBay Sold Listings ---
-def get_ebay_sold_listings(query, max_results=10):
-    base_url = f"https://www.ebay.com/sch/i.html?_nkw={query.replace(' ', '+')}&_sop=13&LH_Sold=1&LH_Complete=1"
+# --- Replace this with your actual eBay App ID ---
+EBAY_APP_ID = "YOUR_EBAY_APP_ID"
+
+# --- eBay Browse API Function ---
+def get_ebay_sold_items(query, max_results=10):
     headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept-Language": "en-US,en;q=0.9"
+        "X-EBAY-C-ENDUSERCTX": "contextualLocation=country=US",
+        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+        "X-EBAY-APP-ID": EBAY_APP_ID,
+        "Content-Type": "application/json",
     }
+    params = {
+        "q": query,
+        "limit": max_results,
+        "filter": "buyingOptions:{FIXED_PRICE},conditions:{NEW|USED},price:[10..10000]",
+        "sort": "price",
+    }
+    url = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+
     try:
-        response = requests.get(base_url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, params=params, timeout=10)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         return f"ERROR: {str(e)}"
 
-    soup = BeautifulSoup(response.text, 'html.parser')
+    data = response.json()
+    items = data.get("itemSummaries", [])
 
     results = []
-    for item in soup.select(".s-item")[:max_results]:
-        title = item.select_one(".s-item__title")
-        price = item.select_one(".s-item__price")
-        date = item.select_one(".s-item__title--tagblock")
-        link = item.select_one(".s-item__link")
-
-        if title and price and link:
-            results.append({
-                "Title": title.get_text(),
-                "Price": price.get_text(),
-                "Date": date.get_text() if date else "",
-                "URL": link['href']
-            })
+    for item in items:
+        results.append({
+            "Title": item.get("title"),
+            "Price": f"{item['price']['value']} {item['price']['currency']}" if 'price' in item else "",
+            "Condition": item.get("condition", ""),
+            "URL": item.get("itemWebUrl")
+        })
 
     return pd.DataFrame(results)
 
 # --- Streamlit Frontend ---
 st.set_page_config(page_title="Flip2Grade MVP", layout="wide")
-st.title("📈 Flip2Grade - Card Value Analyzer")
+st.title("📈 Flip2Grade - Card Value Analyzer (eBay API Edition)")
 
 st.write("""
 Compare raw and PSA 10 card prices to find flip opportunities.
-Start by entering a search term below (e.g., "2024 Bowman Chrome Jackson Holliday PSA 10").
+This version uses the official eBay API for improved reliability.
 """)
 
 query = st.text_input("Enter your search query:", "2024 Bowman Chrome Jackson Holliday PSA 10")
 max_results = st.slider("Max number of results to show:", 5, 50, 15)
 
-if st.button("Search eBay Sold Listings"):
-    with st.spinner("Fetching data from eBay..."):
-        listings = get_ebay_sold_listings(query, max_results)
+if st.button("Search eBay Listings"):
+    with st.spinner("Fetching data from eBay API..."):
+        listings = get_ebay_sold_items(query, max_results)
 
         if isinstance(listings, str) and listings.startswith("ERROR"):
             st.error(f"Failed to fetch listings: {listings}")
         elif not listings.empty:
-            st.success(f"Found {len(listings)} sold listings.")
+            st.success(f"Found {len(listings)} listings.")
             st.dataframe(listings, use_container_width=True)
         else:
-            st.warning("No sold listings found. The page structure may have changed or results are blocked.")
-            st.code("Try a simpler query or use the official eBay API for stability.")
+            st.warning("No listings found. Try a broader search term.")
